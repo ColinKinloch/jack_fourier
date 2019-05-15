@@ -4,7 +4,6 @@ extern crate nix;
 extern crate gio;
 extern crate gtk;
 extern crate cairo;
-extern crate cairo_sys;
 
 use gio::prelude::*;
 use gtk::prelude::*;
@@ -65,7 +64,7 @@ extern "C" fn handle_sigint(_: i32) {
 fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) {
     let window = gtk::ApplicationWindow::new(application);
 
-    window.set_title("First GTK+ Program");
+    window.set_title("Jack Fourier");
     window.set_border_width(10);
     window.set_position(gtk::WindowPosition::Center);
     window.set_default_size((F_SIZE as f64) as i32, HEIGHT as i32);
@@ -78,8 +77,6 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
       let counter = RefCell::new(0);
       let plan = RefCell::new(Plan::new(Operation::Inverse, F_SIZE));
       drawing_area.connect_draw(move |drawing_area, cr| {
-        //cr.scale(1.0, 1.0);
-        //cr.translate(0., 0.);
         let da_alloc = drawing_area.get_allocation();
         let scale_height = (f64::from(da_alloc.height) / H_SCALE) as usize;
         {
@@ -125,11 +122,6 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
             }
             // println!("{} = {}", m, (m * 255.) as u8);
           }
-          
-          
-          
-          //unsafe { cairo_sys::cairo_surface_mark_dirty(raster.to_raw_none()) };
-          // raster.dirty = true;
         }
         cr.scale(F_SCALE, H_SCALE);
         
