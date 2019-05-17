@@ -61,6 +61,17 @@ extern "C" fn handle_sigint(_: i32) {
     RUNNING.store(false, atomic::Ordering::SeqCst);
 }
 
+fn interp_colours(colours: &[[f32; 3]], value: f32) -> Vec<f32> {
+  let l = colours.len() as f32;
+  let mut bv = (l - 1.) * value;
+  bv = bv.min(l - 1.);//if bv > l {bv = l};
+  let d = (bv - bv.floor()) * bv.ceil();
+  let ref low_colour = colours[bv.floor() as usize];
+  let ref high_colour = colours[bv.ceil() as usize];
+  low_colour.iter().zip(high_colour.iter()).map(|(a, b)| a * (1. - d) + b * d).collect::<Vec<f32>>()
+  //low_colour.clone()
+}
+
 fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) {
     let window = gtk::ApplicationWindow::new(application);
 
@@ -103,7 +114,7 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
             
             let mut m = 0.0_f32;
             const BBP: usize = 4;
-            for (i, &s) in (0..(width/2)).zip(data.iter()) {
+            for (i, &s) in (0..width).zip(data.iter()) {
               //for j in 0..(height/2) {
               {
                 let j = *counter % scale_height as usize;
@@ -111,16 +122,30 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
                 let g = s.abs() * F_SIZE as f32;
                 m = m.max(g);
                 //println!("{} = {}", s, g);
-                let g = g.sqrt() * 255.;
-                let g = if g > 255. {255} else {g as u8};
-                d[p+i*BBP+0] = g;
-                d[p+i*BBP+1] = g;
-                d[p+i*BBP+2] = g;
+                let mut ic = interp_colours(&[
+                    [0.0, 0.0, 0.0], // Black
+                    [1.0, 0.0, 0.0], // Blue
+                    [1.0, 1.0, 0.0], // 
+                    [0.0, 1.0, 1.0], // 
+                    [0.0, 0.0, 1.0], // Blue
+                    [1.0, 1.0, 1.0], // White
+                  ],
+                  (g / 8.).sqrt()
+                  
+                );
+                // [B, G, R]
+                //let mut ic = interp_colours(&[[0.0, 1.0, 1.0]], g.sqrt());
+                //let g = g.sqrt() * 255.;
+                for c in ic.iter_mut() { *c *= 255. };
+                let iic = ic.iter().map(|v| if *v > 255. {255} else {*v as u8}).collect::<Vec<_>>();
+                for (j, c) in iic.iter().enumerate() {
+                  d[p+i*BBP+j] = *c;
+                }
                 d[p+i*BBP+3] = 0;
               // d[BBP*j+2] = 0;
               }
             }
-            // println!("{} = {}", m, (m * 255.) as u8);
+            //println!("{}", m);
           }
         }
         cr.scale(F_SCALE, H_SCALE);
