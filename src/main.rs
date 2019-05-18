@@ -15,16 +15,12 @@ use std::cell::RefCell;
 use std::f32;
 
 use std::collections::VecDeque;
-use nix::sys::signal;
 use std::sync::atomic;
 
 const F_SIZE: usize = 512;
 const HEIGHT: usize = 1080;
 const H_SCALE: f64 = 2.;
 const F_SCALE: f64 = 3.;
-
-// signals are unpleasant (check comments in simple_client example)
-static RUNNING: atomic::AtomicBool = atomic::AtomicBool::new(true);
 
 type InputPort  = jack::InputPortHandle<jack::DefaultAudioSample>;
 
@@ -56,11 +52,6 @@ fn as_c32_mut(slice: &mut [f32]) -> &mut [c32] {
     unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut _, slice.len() / 2) }
 }
 
-
-extern "C" fn handle_sigint(_: i32) {
-    RUNNING.store(false, atomic::Ordering::SeqCst);
-}
-
 fn interp_colours(colours: &[[f32; 3]], value: f32) -> Vec<f32> {
   let l = colours.len() as f32;
   let mut bv = (l - 1.) * value;
@@ -72,7 +63,7 @@ fn interp_colours(colours: &[[f32; 3]], value: f32) -> Vec<f32> {
   //low_colour.clone()
 }
 
-fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) {
+fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, samples: Arc<Mutex<VecDeque<f32>>>) {
     let window = gtk::ApplicationWindow::new(application);
 
     window.set_title("Jack Fourier");
@@ -86,7 +77,15 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
     {
       let raster = RefCell::new(cairo::ImageSurface::create(cairo::Format::Rgb24, F_SIZE as i32, HEIGHT as i32).unwrap());
       let counter = RefCell::new(0);
-      let plan = RefCell::new(Plan::new(Operation::Inverse, F_SIZE));
+      let plan = Plan::new(Operation::Inverse, F_SIZE);
+      let colour_set = [
+        [0.0, 0.0, 0.0], // Black
+        [1.0, 0.0, 0.0], // Blue
+        [1.0, 1.0, 0.0], // 
+        [0.0, 1.0, 1.0], // 
+        [0.0, 0.0, 1.0], // Blue
+        [1.0, 1.0, 1.0]
+      ];
       drawing_area.connect_draw(move |drawing_area, cr| {
         let da_alloc = drawing_area.get_allocation();
         let scale_height = (f64::from(da_alloc.height) / H_SCALE) as usize;
@@ -101,7 +100,7 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
           
           let mut samples = samples.lock().unwrap();
           
-          let plan = plan.borrow();
+          //let plan = plan.borrow();
           while samples.len() > F_SIZE {
             let s = samples.drain(0..F_SIZE);
             let mut data = s.collect::<Vec<_>>(); // vec![0.0; 32];
@@ -122,17 +121,7 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
                 let g = s.abs() * F_SIZE as f32;
                 m = m.max(g);
                 //println!("{} = {}", s, g);
-                let mut ic = interp_colours(&[
-                    [0.0, 0.0, 0.0], // Black
-                    [1.0, 0.0, 0.0], // Blue
-                    [1.0, 1.0, 0.0], // 
-                    [0.0, 1.0, 1.0], // 
-                    [0.0, 0.0, 1.0], // Blue
-                    [1.0, 1.0, 1.0], // White
-                  ],
-                  (g / 8.).sqrt()
-                  
-                );
+                let mut ic = interp_colours(&colour_set, (g / 8.).sqrt());
                 // [B, G, R]
                 //let mut ic = interp_colours(&[[0.0, 1.0, 1.0]], g.sqrt());
                 //let g = g.sqrt() * 255.;
@@ -163,7 +152,7 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
       let drawing_area = drawing_area.clone();
       idle_add(move || {
         drawing_area.queue_draw();
-        Continue(RUNNING.load(atomic::Ordering::SeqCst))
+        Continue(running.load(atomic::Ordering::SeqCst))
       });
     }
 
@@ -173,16 +162,7 @@ fn build_ui(application: &gtk::Application, samples: Arc<Mutex<VecDeque<f32>>>) 
 }
 
 fn main() {
-    // register a signal handler (see comments at top of file)
-    let action = signal::SigAction::new(
-        signal::SigHandler::Handler(handle_sigint),
-        signal::SaFlags::empty(),
-        signal::SigSet::empty());
-
-    unsafe { signal::sigaction(signal::Signal::SIGINT, &action) }.unwrap();
-
-    // set our global atomic to true
-    RUNNING.store(true, atomic::Ordering::SeqCst);
+    let mut running = Arc::new(atomic::AtomicBool::new(true));
 
     let mut jack_client =
         jack::Client::open("jack_fourier", jack::options::NO_START_SERVER).unwrap().0;
@@ -204,21 +184,21 @@ fn main() {
     // start everything up
     jack_client.activate().unwrap();
 
-    application.connect_activate(move |app| {
-      build_ui(app, samples.clone());
-    });
-    application.connect_shutdown(move |_app| {
-      RUNNING.store(false, atomic::Ordering::SeqCst);
-    });
+    let jack_client = Arc::new(Mutex::new(jack_client));
+    {
+      let running = running.clone();
+      application.connect_activate(move |app| {
+        build_ui(app, running.clone(), samples.clone());
+      });
+    }
+    {
+      let running = running.clone();
+      application.connect_shutdown(move |_app| {
+        running.store(false, atomic::Ordering::SeqCst);
+        jack_client.lock().unwrap().close().unwrap();
+      });
+    }
 
     application.run(&std::env::args().collect::<Vec<_>>());
     
-    // now we can clean everything up
-    // the library doesn't handle this for us because it would be rather confusing, especially
-    // given how the underlying jack api actually works
-    println!("tearing down");
-
-    // closing the client unregisters all of the ports
-    // unregistering the ports after the client is closed is an error
-    jack_client.close().unwrap();
 }
