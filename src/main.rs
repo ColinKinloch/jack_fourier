@@ -74,6 +74,7 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
   let drawing_area = gtk::DrawingArea::new();
   //drawing_area.set_size_request(F_SIZE as i32, HEIGHT as i32);
   
+  let gain_adjustment = gtk::Adjustment::new(1.0, 0.0, 2.0, 0.01, 0.01, 0.1);
   {
     let raster = RefCell::new(cairo::ImageSurface::create(cairo::Format::Rgb24, F_SIZE as i32, HEIGHT as i32).unwrap());
     let counter = RefCell::new(0);
@@ -85,6 +86,7 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
       [0.0, 0.0, 1.0], // Blue
       [1.0, 1.0, 1.0]
     ];
+    let gain_adjustment = gain_adjustment.clone();
     drawing_area.connect_draw(move |drawing_area, cr| {
       let da_alloc = drawing_area.get_allocation();
       let scale_height = (f64::from(da_alloc.height) / H_SCALE) as usize;
@@ -114,7 +116,7 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
               let g = s.abs() * F_SIZE as f32;
               m = m.max(g);
               //println!("{} = {}", s, g);
-              let mut ic = interp_colours(&colour_set, (g / 2.).sqrt());
+              let mut ic = interp_colours(&colour_set, (g * gain_adjustment.get_value() as f32).sqrt());
               // [B, G, R]
               //let mut ic = interp_colours(&[[0.0, 1.0, 1.0]], g.sqrt());
               //let g = g.sqrt() * 255.;
@@ -150,6 +152,33 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
   }
 
   window.add(&drawing_area);
+
+  let header_bar = gtk::HeaderBar::new();
+  header_bar.set_show_close_button(true);
+  header_bar.set_title(Some(window.get_title().unwrap().as_str()));
+
+  let menu_button = gtk::MenuButton::new();
+
+  let popover = gtk::Popover::new(&window);
+
+  let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 3);
+
+
+  let gain_scale = gtk::Scale::new(gtk::Orientation::Horizontal, &gain_adjustment);
+
+  gain_scale.set_digits(3);
+
+  menu_box.add(&gain_scale);
+  menu_box.set_property_width_request(500);
+  menu_box.show_all();
+
+  popover.add(&menu_box);
+
+  menu_button.set_popover(&popover);
+
+  header_bar.pack_end(&menu_button);
+
+  window.set_titlebar(&header_bar);
 
   window.show_all();
 }
