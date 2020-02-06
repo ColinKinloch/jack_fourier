@@ -159,12 +159,12 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
 
   let menu_button = gtk::MenuButton::new();
 
-  let popover = gtk::Popover::new(&window);
+  let popover = gtk::Popover::new(Some(&menu_button));
 
   let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 3);
 
 
-  let gain_scale = gtk::Scale::new(gtk::Orientation::Horizontal, &gain_adjustment);
+  let gain_scale = gtk::Scale::new(gtk::Orientation::Horizontal, Some(&gain_adjustment));
 
   gain_scale.set_digits(3);
 
@@ -174,11 +174,11 @@ fn build_ui(application: &gtk::Application, running: Arc<atomic::AtomicBool>, fr
 
   popover.add(&menu_box);
 
-  menu_button.set_popover(&popover);
+  menu_button.set_popover(Some(&popover));
 
   header_bar.pack_end(&menu_button);
 
-  window.set_titlebar(&header_bar);
+  window.set_titlebar(Some(&header_bar));
 
   window.show_all();
 }
@@ -223,7 +223,7 @@ fn main() {
   let handler = Connector::new(input, samples.clone());
   jack_client.set_process_handler(handler).unwrap();
   
-  let application = gtk::Application::new("org.kinloch.colin.jack_fourier",
+  let application = gtk::Application::new(Some("org.kinloch.colin.jack_fourier"),
                                           gio::ApplicationFlags::NON_UNIQUE)
                                      .expect("Initialization failed...");
 
